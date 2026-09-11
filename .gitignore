@@ -1,0 +1,32 @@
+# Operating-system and temporary files
+.DS_Store
+Thumbs.db
+~$*
+*.log
+*.lock
+
+# Historical spreadsheet exports — keep outside source control
+Old Files/
+*.xlsx
+*.xls
+*.xlsm
+
+# Dashboard runtime data and uploaded confidential files
+Mold Program/Dashboard App/mold_shared_rows.json
+Mold Program/Dashboard App/mold_management.json
+Mold Program/Dashboard App/drawings/
+Mold Program/Dashboard App/work_orders/
+Mold Program/Dashboard App/repair_photos/
+
+# Auto-created dashboard backups and local historical copies
+Mold Program/Dashboard App/Backups/
+Mold Program/Dashboard App/mold_shared_rows.backup_*.json
+Mold Program/Dashboard App/mold_shared_rows.before_*.json
+Mold Program/Dashboard App/mold_management.before_*.json
+Mold Program/Dashboard App/mold_dashboard.before_*.html
+Mold Program/Dashboard App/mold_shared_server.before_*.ps1
+Mold Program/Dashboard App/mold_management.before_*.ps1
+Mold Program/Dashboard App/mold_management_core.before_*.js
+
+# Local checks and generated screenshots
+Mold Program/Dashboard App/codex_theme_check_tmp.png
