@@ -1,0 +1,23 @@
+[Unit]
+Description=PEAK Mold Dashboard shared application server
+After=network.target
+
+[Service]
+Type=simple
+User=moldapp
+Group=moldapp
+WorkingDirectory=/opt/mold-dashboard
+ExecStart=/usr/bin/pwsh -NoLogo -NoProfile -File /opt/mold-dashboard/mold_shared_server.ps1 -Port 3212
+Restart=on-failure
+RestartSec=5
+UMask=0027
+
+# The application must be able to update its data, backup, drawing, and work-order folders.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=full
+ReadWritePaths=/opt/mold-dashboard
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,5 @@
+﻿$path='\\192.168.231.8\CE Internal\4. CE WEEKLY REPORT\Mold List (禮拜五下班前)\mold_dashboard.html'
+$content = Get-Content -LiteralPath $path -Raw
+$content = $content.Replace('h1{margin:18px 0 10px;font-size:clamp(30px,5vw,54px);line-height:.98;letter-spacing:-.04em}','h1{margin:18px 0 10px;font-size:clamp(30px,5vw,54px);line-height:.98;letter-spacing:-.04em;word-break:keep-all;overflow-wrap:anywhere}')
+$content = $content.Replace('@media (max-width:1200px){.hero,.cards,.filters,.editor-grid{grid-template-columns:1fr}.shell{padding:18px 12px 32px}.hero-panel,.summary-panel{padding:20px}.table-wrap{max-height:none}}','@media (max-width:1200px){.hero,.cards,.filters,.editor-grid{grid-template-columns:1fr}.shell{padding:18px 12px 32px}.hero-panel,.summary-panel{padding:20px}.table-wrap{max-height:none}}@media (max-width:640px){h1{font-size:clamp(22px,12vw,44px);line-height:1.02;letter-spacing:-.03em}.eyebrow{font-size:11px;padding:7px 11px}.hero-panel{padding:18px;min-width:0}.summary-panel{padding:18px}}')
+Set-Content -LiteralPath $path -Value $content -Encoding UTF8

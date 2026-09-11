@@ -1,0 +1,7 @@
+﻿$path='\\192.168.231.8\CE Internal\4. CE WEEKLY REPORT\Mold List (禮拜五下班前)\mold_dashboard.html'
+$content = Get-Content -LiteralPath $path -Raw
+$content = $content.Replace('.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin-bottom:18px}','.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px}.cards-top{align-content:start}')
+$content = $content.Replace('@media (max-width:1200px){.hero,.cards,.filters,.editor-grid{grid-template-columns:1fr}.shell{padding:18px 12px 32px}.hero-panel,.summary-panel{padding:20px}.hero-panel{min-height:auto}.table-wrap{max-height:none}}','@media (max-width:1200px){.hero,.cards,.filters,.editor-grid{grid-template-columns:1fr}.shell{padding:18px 12px 32px}.hero-panel,.summary-panel{padding:20px}.hero-panel{min-height:auto}.cards-top{margin-top:0}.table-wrap{max-height:none}}')
+$content = $content.Replace('<section class="hero"><div class="hero-panel"><div class="eyebrow">Weekly Mold View</div><h1>Mold List Dashboard</h1></div><div class="summary-panel"><div class="summary-title">Overview</div><p class="summary-copy">All key numbers are summarized below as large cards. Each card shows the total first, then a small DW / Peak split underneath.</p></div></section>
+<section class="cards" id="cards"></section>','<section class="hero"><div class="hero-panel"><div class="eyebrow">Weekly Mold View</div><h1>Mold List Dashboard</h1></div><section class="cards cards-top" id="cards"></section></section>')
+Set-Content -LiteralPath $path -Value $content -Encoding UTF8
