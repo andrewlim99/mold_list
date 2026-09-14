@@ -24,9 +24,16 @@
     timeZone: 'Asia/Taipei', year: 'numeric', month: 'short', day: '2-digit',
     hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23'
   }).format(new Date(value)) : '-';
-  const uuid = () => window.crypto.randomUUID ? window.crypto.randomUUID() :
-    '10000000-1000-4000-8000-100000000000'.replace(/[018]/g, char =>
-      (char ^ window.crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> char / 4).toString(16));
+  const uuid = () => {
+    const crypto = window.crypto || window.msCrypto;
+    if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    const bytes = new Uint8Array(16);
+    if (crypto && typeof crypto.getRandomValues === 'function') crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+  };
 
   const nav = document.createElement('nav');
   nav.className = 'management-nav';

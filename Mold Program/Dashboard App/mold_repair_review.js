@@ -3,11 +3,21 @@
   const esc = value => String(value == null ? '' : value).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   const resultKeys = ['modification','doneBy','repairType','beforeValue','afterValue','beforePhoto','afterPhoto'];
   const photoUrl = id => /^[a-f0-9]{32}$/.test(id || '') ? (root.MoldApp ? root.MoldApp.apiBase : '') + '/api/management/photo/' + id : '';
+  const uuid = () => {
+    const crypto = root.crypto || root.msCrypto;
+    if (crypto && typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+    const bytes = new Uint8Array(16);
+    if (crypto && typeof crypto.getRandomValues === 'function') crypto.getRandomValues(bytes);
+    else for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256);
+    bytes[6] = (bytes[6] & 15) | 64;
+    bytes[8] = (bytes[8] & 63) | 128;
+    return Array.from(bytes, value => value.toString(16).padStart(2, '0')).join('').replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
+  };
   function normalize(order) {
     if (order.urgent == null) order.urgent = false;
     if (order.requestedCompletionDate == null) order.requestedCompletionDate = '';
     order.items.forEach(item => {
-      if (!item.id) item.id = root.crypto.randomUUID();
+      if (!item.id) item.id = uuid();
       for (const key of ['repairType','beforeValue','afterValue','beforePhoto','afterPhoto','roomBy','roomAt','qcBy','qcAt','postQcBy','postQcAt','waiveReason','waivedBy','waivedAt']) {
         if (item[key] == null) item[key] = '';
       }
