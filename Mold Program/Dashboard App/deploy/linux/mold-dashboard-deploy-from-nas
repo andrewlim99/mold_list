@@ -132,7 +132,9 @@ deploy_release() {
   trap 'rm -rf "$stage"' RETURN
   unzip -q "$archive" -d "$stage"
 
-  mapfile -t dashboards < <(find "$stage" -type f -name mold_dashboard.html -print)
+  # A full source ZIP can include historical dashboard copies under Backups.
+  # Only the active Dashboard App root is eligible for deployment.
+  mapfile -t dashboards < <(find "$stage" -type f -name mold_dashboard.html ! -path '*/Backups/*' -print)
   if [[ ${#dashboards[@]} -ne 1 ]]; then
     log "Rejected: ZIP must contain exactly one mold_dashboard.html: $(basename "$archive")"
     return 0
