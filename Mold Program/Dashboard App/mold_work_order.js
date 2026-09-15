@@ -51,17 +51,17 @@
       '</select></label><label class="mm-field">Request By<select data-order-field="requestedBy"><option value="">Select name</option>' +
       [...new Set([...(requesters[order.team] || []), ...(order.requestNo && order.requestedBy ? [order.requestedBy] : [])])].map(name =>
         '<option value="' + esc(name) + '"' + (name === order.requestedBy ? ' selected' : '') + '>' + esc(name) + '</option>').join('') + '</select></label>' +
-      input('rev', 'Rev.', 100, false) + input('reason', 'Reason', 500, false) +
+      input('rev', 'Rev.', 100, true) + input('reason', 'Reason', 500, false) +
       '<label class="mm-urgent-toggle"><input type="checkbox" data-order-field="urgent"' + (order.urgent ? ' checked' : '') + '> Urgent</label>' +
-      '<label class="mm-field">Requested Completion Date<input type="date" lang="en" data-order-field="requestedCompletionDate" value="' +
+      '<label class="mm-field">Requested Completion Date<input type="text" placeholder="YYYY-MM-DD" inputmode="numeric" maxlength="10" autocomplete="off" data-order-field="requestedCompletionDate" value="' +
       esc(order.requestedCompletionDate) + '"' + (order.urgent ? '' : ' disabled') + '></label></div>' +
-      '<div class="mm-order-items"><div class="mm-order-item mm-order-heading"><span>No.</span><span>Modification</span><span>Mold Room Operator</span><span></span></div>' +
+      '<div class="mm-order-items"><div class="mm-order-item mm-order-heading"><span>No.</span><span>Modification</span><span>Mold Team Technician</span><span></span></div>' +
       order.items.map((item, index) => '<div class="mm-order-item" data-order-row="' + index + '"><span class="mm-order-number">' + (index + 1) + '</span>' +
         '<textarea data-order-item="modification" aria-label="Modification ' + (index + 1) + '" maxlength="10000" rows="2">' + esc(item.modification) + '</textarea>' +
         '<input data-order-item="doneBy" aria-label="Done By ' + (index + 1) + '" maxlength="100" value="' + esc(item.doneBy) + '">' +
         '<button type="button" data-order-remove="' + index + '" title="Remove row" aria-label="Remove row ' + (index + 1) + '"' +
         (order.items.length === 1 ? ' disabled' : '') + '>&times;</button>' + root.MoldRepairReview.fields(item, index) + '</div>').join('') + '</div>' +
-      '<button type="button" id="managementAddItem"' + (order.items.length >= 100 ? ' disabled' : '') + '>+ Add Row</button>' + root.MoldRepairReview.finalFields(order) + '</fieldset>';
+      '<button type="button" id="managementAddItem"' + (order.items.length >= 100 ? ' disabled' : '') + '>+ Add Row</button></fieldset>';
   }
   function collect(container, order) {
     container.querySelectorAll('[data-order-field]').forEach(input => { order[input.dataset.orderField] = input.type === 'checkbox' ? input.checked : input.value; });
@@ -81,10 +81,11 @@
   function table(order) {
     return (order.urgent ? '<p class="mm-urgent-label" style="color:#b91c1c;font-weight:700">URGENT | Requested Completion Date: ' +
       esc(order.requestedCompletionDate || 'Not set') + '</p>' : '') +
-      '<table class="mm-saved-items"><thead><tr><th>No.</th><th>Modification</th><th>Done By</th></tr></thead><tbody>' +
+      '<table class="mm-saved-items"><thead><tr><th>No.</th><th>Modification</th><th>Mold Team Technician</th></tr></thead><tbody>' +
       order.items.map((item, index) => '<tr><td>' + (index + 1) + '</td><td>' + esc(item.modification) +
         root.MoldRepairReview.details(item) + '</td><td>' + esc(item.doneBy) + '</td></tr>').join('') + '</tbody></table>' +
-        '<p>Repair QC Leader: ' + esc(order.preQcLeaderBy || '-') + ' | ' + (order.preQcLeaderApproved ? 'Approved' : 'Pending') + ' ' + esc(order.preQcLeaderAt) + '</p>' +
+        '<p>Mold QC: ' + esc(order.preQcLeaderBy || '-') + ' | ' + (order.preQcLeaderApproved ? 'Approved' : 'Pending') + ' ' + esc(order.preQcLeaderAt) + '</p>' +
+        '<p>QC Comment: <span translate="no">' + esc(order.postQcComment || '-') + '</span></p>' +
         '<p>Post-injection QC Leader: ' + esc(order.qcLeaderBy || '-') + ' | ' + (order.qcLeaderApproved ? 'Approved' : 'Pending') + ' ' + esc(order.qcLeaderAt) + '</p>';
   }
   function printable(order, logo) {
@@ -98,6 +99,9 @@
       inspection('Injection Test Results \u5c04\u51fa\u6e2c\u8a66\u7d50\u679c') +
       inspection('Sample Tray Inspection Results \u677f\u5b50\u6aa2\u67e5\u7d50\u679c') +
       approval('After Modification Release \u52a0\u5de5\u5f8c\u53ef\u751f\u7522', 'QA') + '</div>';
+    const requestItems = '<table class="mm-saved-items"><thead><tr><th>No.</th><th>Modification</th><th>Request Type</th></tr></thead><tbody>' +
+      order.items.map((item, index) => '<tr><td>' + (index + 1) + '</td><td translate="no">' + esc(item.modification) +
+        '</td><td>' + esc(item.repairType || '') + '</td></tr>').join('') + '</tbody></table>';
     return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>' + esc(order.requestNo) + '</title><style>' +
       '@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}body{font:12px Arial,sans-serif;color:#000;margin:20px;width:190mm}' +
       '#printPage{position:relative;width:190mm;height:276mm;overflow:hidden}#printSheet{position:absolute;top:0;left:0;width:190mm;transform-origin:top left;display:flex;flex-direction:column}#printSheet>header,#printSheet>table,#printSheet>.work-order-approvals{flex-shrink:0}.handwriting-space{flex:1 0 144px;min-height:144px;display:flex;flex-direction:column;margin-top:-1px;border-top:1px solid #111}.handwriting-row{flex:1;min-height:24px;display:grid;grid-template-columns:7% 75% 18%;border-bottom:1px solid #111;border-left:1px solid #111}.handwriting-row span{border-right:1px solid #111}' +
@@ -116,7 +120,9 @@
       '<tr><th>Description</th><td>' + esc(order.description) + '</td><th>Request Date</th><td>' + esc(order.requestDate) + '</td></tr>' +
       '<tr><th>Mold No.</th><td>' + esc(order.moldNo) + '</td><th>Request No.</th><td>' + esc(order.requestNo) + '</td></tr>' +
       '<tr><th>Rev.</th><td>' + esc(order.rev) + '</td><th>Request By</th><td>' + esc(order.requestedBy) + '</td></tr>' +
-      '<tr><th>Reason</th><td colspan="3">' + esc(order.reason) + '</td></tr></tbody></table>' + table(order) + '<div class="handwriting-space" aria-hidden="true">' +
+      '<tr><th>Reason</th><td colspan="3">' + esc(order.reason) + '</td></tr>' +
+      (order.urgent ? '<tr><th style="color:#b91c1c">URGENT</th><td>Yes</td><th>Requested Completion Date</th><td>' + esc(order.requestedCompletionDate || 'Not set') + '</td></tr>' : '') +
+      '</tbody></table>' + requestItems + '<div class="handwriting-space" aria-hidden="true">' +
       Array.from({ length: 6 }, () => '<div class="handwriting-row"><span></span><span></span><span></span></div>').join('') + '</div>' + approvals + '</div></main>' +
       '<script>function fitWorkOrder(){var sheet=document.getElementById("printSheet"),page=document.getElementById("printPage");sheet.style.transform="none";sheet.style.height="auto";var scale=Math.min(1,(page.clientHeight-2)/sheet.scrollHeight,(page.clientWidth-2)/sheet.scrollWidth);sheet.style.height=((page.clientHeight-2)/scale)+"px";sheet.style.transform="scale("+scale+")";}' +
       'window.addEventListener("beforeprint",fitWorkOrder);window.addEventListener("load",fitWorkOrder);document.fonts.ready.then(fitWorkOrder);document.querySelectorAll("img").forEach(function(img){img.addEventListener("load",fitWorkOrder);img.addEventListener("error",fitWorkOrder);});fitWorkOrder();</script></body></html>';

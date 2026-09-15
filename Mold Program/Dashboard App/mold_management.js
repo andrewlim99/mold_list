@@ -128,7 +128,7 @@
   dialog.setAttribute('aria-labelledby', 'managementTitle');
   dialog.innerHTML = '<header class="mm-header"><div><h2 id="managementTitle">Mold Management</h2>' +
     '<div id="managementProduct" class="mm-subtitle"></div></div>' +
-    '<button type="button" id="managementClose" class="mm-close" title="Close" aria-label="Close">&times;</button></header>' +
+    '<section id="managementApprovals"></section><button type="button" id="managementClose" class="mm-close" title="Close" aria-label="Close">&times;</button></header>' +
     '<div class="mm-content"><div class="mm-tabs" role="tablist" aria-label="Management category">' +
     '<button id="managementPmTab" role="tab" aria-controls="managementBody" aria-selected="true">Mold PM</button>' +
     '<button id="managementRepairTab" role="tab" aria-controls="managementBody" aria-selected="false">Mold Modification / Repair</button>' +
@@ -136,6 +136,27 @@
     '<section id="managementBody" role="tabpanel" aria-labelledby="managementPmTab"></section>' +
     '<section class="mm-history"><div id="managementHistory"></div></section></div>';
   document.body.appendChild(dialog);
+  const photoDialog = document.createElement('dialog');
+  photoDialog.id = 'managementPhotoPreview';
+  photoDialog.setAttribute('aria-label', 'Photo Preview');
+  photoDialog.innerHTML = '<div class="mm-photo-preview-head"><strong>Photo Preview</strong><button type="button" title="Close photo" aria-label="Close photo">&times;</button></div><img alt="">';
+  document.body.appendChild(photoDialog);
+  photoDialog.querySelector('button').onclick = () => photoDialog.close();
+  photoDialog.addEventListener('cancel', event => {
+    event.preventDefault();
+    event.stopPropagation();
+    photoDialog.close();
+  });
+  photoDialog.addEventListener('close', () => photoDialog.querySelector('img').removeAttribute('src'));
+  $('managementBody').addEventListener('click', event => {
+    const link = event.target.closest('a.mm-review-photo');
+    if (!link) return;
+    event.preventDefault();
+    const preview = photoDialog.querySelector('img');
+    preview.src = link.href;
+    preview.alt = link.querySelector('img').alt;
+    photoDialog.showModal();
+  });
   const completionDialog = document.createElement('dialog');
   completionDialog.id = 'managementCompletionDialog';
   completionDialog.setAttribute('aria-labelledby', 'managementCompletionTitle');
@@ -483,6 +504,7 @@
     if (assignment) draft.assignmentId = assignment.assignmentId;
     const active = assignment ? Object.assign({}, activeJob, assignment, { id: activeJob.id }) : activeJob;
     const isPm = category === 'pm';
+    renderApprovals(activeJob, isPm);
     $('managementPmTab').setAttribute('aria-selected', String(isPm));
     $('managementRepairTab').setAttribute('aria-selected', String(!isPm));
     $('managementBody').setAttribute('aria-labelledby', isPm ? 'managementPmTab' : 'managementRepairTab');
@@ -550,7 +572,23 @@
     $('managementBody').querySelectorAll('[data-review-field]').forEach(input => {
       input.onchange = () => { collectDraft(); renderDialog(); };
     });
-    $('managementBody').querySelectorAll('[data-review-photo]').forEach(input => { input.onchange = () => uploadRepairPhoto(input); });
+    const postComment = $('managementBody').querySelector('[data-post-qc-comment]');
+    if (postComment) postComment.onchange = () => { collectDraft(); renderDialog(); };
+    $('managementBody').querySelectorAll('[data-review-photo]').forEach(input => {
+      input.onchange = () => uploadRepairPhoto(input);
+      input.addEventListener('cancel', event => event.stopPropagation());
+    });
+    $('managementBody').querySelectorAll('[data-photo-remove]').forEach(button => {
+      button.onclick = () => {
+        if (busy) return;
+        collectDraft();
+        const item = draft.order.items[Number(button.dataset.photoItem)], key = button.dataset.photoKey;
+        item[key + 's'].splice(Number(button.dataset.photoRemove), 1);
+        item[key] = item[key + 's'][0] || '';
+        window.MoldRepairReview.invalidate(draft.order, item);
+        renderDialog();
+      };
+    });
     if ($('managementPmTeam')) $('managementPmTeam').onchange = () => {
       collectDraft(); draft.pmRequestedBy = ''; renderDialog();
     };
@@ -611,32 +649,105 @@
     if (!event || !event.workOrder) return;
     try { workOrders.print(event.workOrder); } catch (error) { message(error.message); }
   }
+  function renderApprovals(job, isPm) {
+    const panel = $('managementApprovals');
+    panel.hidden = isPm;
+    if (isPm) { panel.innerHTML = ''; return; }
+    const order = draft.order;
+    const items = order.items || [];
+    const roles = [
+      ['Mold Leader', items.length && items.every(item => item.roomApproved), items.map(item => item.roomBy).filter(Boolean), items.map(item => item.roomAt).filter(Boolean).sort().slice(-1)[0]],
+      ['Mold QC', order.preQcLeaderApproved, [order.preQcLeaderBy], order.preQcLeaderAt],
+      ['Post-injection QC', items.length && items.every(item => item.postQcApproved), items.map(item => item.postQcBy).filter(Boolean), items.map(item => item.postQcAt).filter(Boolean).sort().slice(-1)[0]],
+      ['Post-injection QC Leader', order.qcLeaderApproved, [order.qcLeaderBy], order.qcLeaderAt]
+    ];
+    const last = job && job.events.filter(event => event.approvalDecision).slice(-1)[0];
+    panel.innerHTML = '<div class="mm-approval-grid">' + roles.map(([role, approved, names, approvedAt], index) => {
+      const rejected = !approved && last && last.approvalDecision.role === role && last.approvalDecision.decision === 'Reject';
+      const required = index < 2 ? 'Repair QC Approval' : 'QC Final Approval';
+      const phaseReady = job && job.assignments.some(item => (item.stage === required && item.processStatus === 'In Progress') ||
+        (item.stage === 'Awaiting Next Process' && item.events.slice(-1)[0].completedStage === required));
+      const previousReady = index === 0 || roles[index - 1][1];
+      const itemsReady = index > 1 || items.every(item => item.waived || item[index === 0 ? 'moldChecked' : 'moldQcChecked']);
+      const stamp = approved ? approvedAt : rejected ? last.approvalDecision.at || last.at : '';
+      const validStamp = stamp && Number.isFinite(new Date(stamp).getTime());
+      const dateLabel = validStamp ? core.taiwanDay(stamp) : '-';
+      const clockLabel = validStamp ? new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(stamp)) : '';
+      return '<div class="mm-approval-role ' + (approved ? 'is-approved' : rejected ? 'is-rejected' : 'is-pending') + '"><strong>' + esc(role) + '</strong><div class="mm-approval-status">' +
+        '<small>' + (approved ? 'Approved' : rejected ? 'Rejected' : 'Pending') + '</small><div class="mm-approval-buttons"><button type="button" data-whole-approval="' + index + '" data-decision="Approve" title="Approve" aria-label="Approve ' + esc(role) + '"' +
+        (!job || busy || !phaseReady || !previousReady || !itemsReady || approved ? ' disabled' : '') + '>' + icon('<path d="m5 12 4 4L19 6"/>') + '</button>' +
+        '<button type="button" data-whole-approval="' + index + '" data-decision="Reject" title="Reject" aria-label="Reject ' + esc(role) + '"' +
+        (!job || busy ? ' disabled' : '') + '>' + icon('<path d="m6 6 12 12M18 6 6 18"/>') + '</button></div></div>' +
+        '<span class="mm-approval-name" translate="no">' + esc(approved ? [...new Set(names)].join(', ') || '-' : rejected ? last.approvalDecision.by : '-') + '</span>' +
+        '<time class="mm-approval-date" title="Taiwan time (UTC+08:00)"' + (validStamp ? ' datetime="' + esc(stamp) + '"' : '') +
+        '><span>' + dateLabel + '</span><span>' + clockLabel + '</span></time></div>';
+    }).join('') + '</div>';
+    panel.querySelectorAll('[data-whole-approval]').forEach(button => {
+      button.onclick = async () => {
+        if (busy || !job) return;
+        collectDraft();
+        if (orderDirty()) { message('Save Work Order changes before approving or rejecting.'); return; }
+        const role = roles[Number(button.dataset.wholeApproval)][0], decision = button.dataset.decision;
+        const by = window.prompt('Approver name');
+        if (by == null) return;
+        if (!by.trim()) { message('Enter the approver name.'); return; }
+        const reason = window.prompt(decision === 'Reject' ? 'Rejection reason (required)' : 'Approval comment (optional)', '');
+        if (reason == null) return;
+        if (decision === 'Reject' && !reason.trim()) { message('Enter a rejection reason.'); return; }
+        busy = true; renderDialog();
+        try {
+          const lastEvent = events.filter(event => event.identity === selected.identity && event.kind === 'repair').slice(-1)[0];
+          const result = await api('/api/management/event', { eventId: uuid(), identity: selected.identity, kind: 'repair', action: 'note',
+            jobId: job.id, expectedEventId: lastEvent.id, approval: { role, decision, by: by.trim(), reason: reason.trim() } });
+          events = result.events; resetOrderDraft(); app.render();
+          message(decision === 'Reject' ? 'Rejected. Returned to Repair Waiting.' : 'Approval saved.', true);
+        } catch (error) { message(error.message); }
+        finally { busy = false; renderDialog(); renderCards(); }
+      };
+    });
+  }
   async function uploadRepairPhoto(input) {
-    if (!selected || busy || !reviewAvailable) { message('Restart the shared server to enable repair photos.'); return; }
-    const file = input.files[0];
-    if (!file) return;
-    if (!['image/jpeg','image/png'].includes(file.type) || file.size > 5 * 1024 * 1024) { message('Choose a JPEG or PNG photo up to 5 MB.'); return; }
-    collectDraft();
     const index = Number(input.dataset.reviewIndex), key = input.dataset.reviewPhoto;
+    const photoMessage = (text, ok = false) => {
+      message(text, ok);
+      const picker = $('managementBody').querySelector(`[data-review-index="${index}"][data-review-photo="${key}"]`);
+      const status = picker && picker.closest('.mm-photo-picker').querySelector('.mm-photo-status');
+      if (status) { status.textContent = text; status.style.color = ok ? '#047857' : '#b91c1c'; }
+    };
+    if (!selected || busy || !reviewAvailable) { message('Restart the shared server to enable repair photos.'); return; }
+    const files = Array.from(input.files);
+    if (!files.length) return;
+    if (files.some(file => !['image/jpeg','image/png'].includes(file.type) || file.size > 5 * 1024 * 1024)) { photoMessage('Choose a JPEG or PNG photo up to 5 MB.'); return; }
+    collectDraft();
     const item = draft.order.items[index];
-    if (!item || !String(item.doneBy || '').trim()) { message('Enter the Mold Room Operator before uploading photos.'); return; }
+    if (!item) return;
+    const uploadedBy = String(item.doneBy || draft.order.requestedBy || '').trim();
+    if (!uploadedBy) { photoMessage('Select Request By before uploading photos.'); return; }
+    if (item[key + 's'].length + files.length > 20) { photoMessage('Up to 20 photos are allowed for each Before / After section.'); return; }
     busy = true;
     $('managementClose').disabled = true;
     renderDialog();
     message('Uploading photo...');
+    let uploadError = '';
     try {
+      for (const file of files) {
       const contentBase64 = await new Promise((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(String(reader.result).split(',')[1]);
         reader.onerror = () => reject(new Error('Photo could not be read.'));
         reader.readAsDataURL(file);
       });
-      const result = await api('/api/management/photo', { identity: selected.identity, itemId: item.id, uploadedBy: item.doneBy, contentBase64 });
-      item[key] = result.photoId;
+      const result = await api('/api/management/photo', { identity: selected.identity, itemId: item.id, uploadedBy, contentBase64 });
+      if (!item[key + 's'].includes(result.photoId)) item[key + 's'].push(result.photoId);
+      item[key] = item[key + 's'][0] || '';
       window.MoldRepairReview.invalidate(draft.order, item);
+      }
       message('Photo uploaded. Save Work Order to record the change.', true);
-    } catch (error) { message(error.message); }
-    finally { busy = false; $('managementClose').disabled = false; renderDialog(); }
+    } catch (error) { uploadError = error.message + ' Previously uploaded photos are retained. Save Work Order to keep them.'; }
+    finally {
+      busy = false; $('managementClose').disabled = false; renderDialog();
+      photoMessage(uploadError || 'Photo uploaded. Save Work Order to record the change.', !uploadError);
+    }
   }
   async function deleteHistory(jobId) {
     if (!selected || !loaded || busy) return;
@@ -779,7 +890,11 @@
   $('managementMode').onclick = () => setMode(true);
   $('moldListMode').onclick = event => { event.preventDefault(); setMode(false); };
   $('managementClose').onclick = closeDialog;
-  dialog.addEventListener('cancel', event => { event.preventDefault(); closeDialog(); });
+  dialog.addEventListener('cancel', event => {
+    if (event.target !== dialog) return;
+    event.preventDefault();
+    closeDialog();
+  });
   ['managementPmTab', 'managementRepairTab'].forEach((id, index) => {
     $(id).onclick = () => {
       if (busy) return;

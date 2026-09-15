@@ -12,7 +12,7 @@ function Get-RepairReviewError {
       continue
     }
     if ($item.repairType -notin @('Visual','Dimensional')) { return ($prefix + 'choose Visual or Dimensional.') }
-    if (-not ([string]$item.doneBy).Trim()) { return ($prefix + 'enter the mold room operator.') }
+    if (-not ([string]$item.doneBy).Trim()) { return ($prefix + 'enter the mold team technician.') }
     if ($item.repairType -eq 'Visual' -and (-not $item.beforePhoto -or -not $item.afterPhoto)) { return ($prefix + 'upload Before and After photos.') }
     if ($item.repairType -eq 'Dimensional' -and (-not ([string]$item.beforeValue).Trim() -or -not ([string]$item.afterValue).Trim())) { return ($prefix + 'enter Before and After measurements.') }
     if ($item.repairType -eq 'Dimensional' -and ($item.beforeValue -notmatch '[0-9]' -or $item.afterValue -notmatch '[0-9]')) { return ($prefix + 'measurements must contain numeric values.') }
@@ -39,30 +39,58 @@ function ConvertTo-RepairReviewItem {
   }
   if ($clean.repairType -notin @('Visual','Dimensional')) { throw 'Choose Visual or Dimensional for each repair item. Refresh the page if the Type field is missing.' }
   foreach ($key in @('beforePhoto','afterPhoto')) {
-    $photo = $clean[$key]
-    if (-not $photo) { continue }
+    $listKey = $key + 's'
+    $ids = if ($null -ne $InputItem.$listKey) { @($InputItem.$listKey) } elseif ($clean[$key]) { @($clean[$key]) } else { @() }
+    $ids = @($ids | Select-Object -Unique)
+    if ($ids.Count -gt 20) { throw 'Up to 20 photos are allowed for each Before / After section.' }
+    $clean[$listKey] = @($ids)
+    $clean[$key] = if ($ids.Count) { [string]$ids[0] } else { '' }
+    foreach ($photo in $ids) {
+    if (-not $photo) { throw 'Invalid repair photo ID.' }
     if ($photo -notmatch '^[a-f0-9]{32}$') { throw 'Invalid repair photo ID.' }
     $metaFile = Join-Path $repairPhotosDir ($photo + '.json')
     if (-not [IO.File]::Exists($metaFile)) { throw 'Repair photo not found. Upload the photo again.' }
     $meta = (Read-FileTextShared $metaFile) | ConvertFrom-Json
     if ($meta.identity -ne $Identity -or $meta.itemId -ne $id) { throw 'The photo belongs to a different mold or repair item.' }
     if (-not [IO.File]::Exists((Join-Path $repairPhotosDir ($photo + $meta.extension)))) { throw 'Repair photo file is missing.' }
+    }
   }
   $changed = -not $PreviousItem
+  foreach ($key in @('beforePhoto','afterPhoto')) {
+    $listKey = $key + 's'
+    $oldIds = if ($null -ne $PreviousItem.$listKey) { @($PreviousItem.$listKey) } elseif ($PreviousItem.$key) { @($PreviousItem.$key) } else { @() }
+    if (($clean[$listKey] -join ',') -cne ($oldIds -join ',')) { $changed = $true }
+  }
   foreach ($key in @('modification','doneBy','repairType','beforeValue','afterValue','beforePhoto','afterPhoto')) {
     if ([string]$clean[$key] -cne [string]$PreviousItem.$key) { $changed = $true }
   }
   $clean.waived = $InputItem.waived -eq $true
+  $checkChanged = $false
+  $roomCheckChanged = $false
+  foreach ($prefix in @('mold','moldQc')) {
+    $legacy = if ($prefix -eq 'mold') { 'room' } else { 'qc' }
+    $flag = $prefix + 'Checked'; $by = $flag + 'By'; $at = $flag + 'At'
+    $oldFlag = if ($null -ne $PreviousItem.$flag) { $PreviousItem.$flag -eq $true } else { $PreviousItem.($legacy + 'Approved') -eq $true }
+    $oldBy = if ($null -ne $PreviousItem.$by) { [string]$PreviousItem.$by } else { [string]$PreviousItem.($legacy + 'By') }
+    $oldAt = if ($null -ne $PreviousItem.$at) { [string]$PreviousItem.$at } else { [string]$PreviousItem.($legacy + 'At') }
+    $clean[$flag] = if ($null -ne $InputItem.$flag) { $InputItem.$flag -eq $true -and -not $changed } else { $oldFlag -and -not $changed }
+    $clean[$by] = if ($null -ne $InputItem.$by) { ([string]$InputItem.$by).Trim() } else { $oldBy }
+    if ($clean[$by].Length -gt 100 -or ($clean[$flag] -and -not $clean[$by])) { throw 'Enter the item checker name (maximum 100 characters).' }
+    if ($prefix -eq 'moldQc' -and $clean[$flag] -and -not $clean.moldChecked) { throw 'Complete the Mold Leader item check first.' }
+    if ($clean[$flag] -ne $oldFlag -or $clean[$by] -cne $oldBy) { $checkChanged = $true }
+    if ($prefix -eq 'mold' -and $checkChanged) { $roomCheckChanged = $true }
+    $clean[$at] = if ($clean[$flag]) { if ($oldFlag -and $clean[$by] -ceq $oldBy -and $oldAt) { $oldAt } else { $Now.ToString('o') } } else { '' }
+  }
   if ($clean.waived -and (-not $clean.waiveReason -or -not $clean.waivedBy)) { throw 'Waive requires a reason and operator name.' }
   $clean.waivedAt = if ($clean.waived) {
     if ($PreviousItem.waived -eq $true -and $clean.waiveReason -ceq $PreviousItem.waiveReason -and $clean.waivedBy -ceq $PreviousItem.waivedBy -and -not $changed) { $PreviousItem.waivedAt } else { $Now.ToString('o') }
   } else { '' }
-  $reviewChanged = $changed -or $clean.waived -ne ($PreviousItem.waived -eq $true) -or $clean.waiveReason -cne [string]$PreviousItem.waiveReason -or $clean.waivedBy -cne [string]$PreviousItem.waivedBy
-  $clean.roomApproved = $InputItem.roomApproved -eq $true -and -not $reviewChanged
+  $reviewChanged = $changed -or $checkChanged -or $clean.waived -ne ($PreviousItem.waived -eq $true) -or $clean.waiveReason -cne [string]$PreviousItem.waiveReason -or $clean.waivedBy -cne [string]$PreviousItem.waivedBy
+  $clean.roomApproved = $InputItem.roomApproved -eq $true -and -not $changed -and -not $roomCheckChanged -and $clean.waived -eq ($PreviousItem.waived -eq $true) -and $clean.waiveReason -ceq [string]$PreviousItem.waiveReason -and $clean.waivedBy -ceq [string]$PreviousItem.waivedBy
   $clean.qcApproved = $InputItem.qcApproved -eq $true -and -not $reviewChanged
   $clean.postQcApproved = $InputItem.postQcApproved -eq $true -and -not $reviewChanged
-  if ($clean.roomApproved) {
-    if (-not $clean.roomBy) { throw 'Enter the Mold Room Leader name.' }
+  if (($clean.roomApproved -or $clean.moldChecked) -and -not $clean.waived) {
+    if ($clean.roomApproved -and -not $clean.roomBy) { throw 'Enter the Mold Room Leader name.' }
     if (-not $clean.doneBy -or ($clean.repairType -eq 'Visual' -and (-not $clean.beforePhoto -or -not $clean.afterPhoto)) -or ($clean.repairType -eq 'Dimensional' -and (-not $clean.beforeValue -or -not $clean.afterValue))) { throw 'Save complete Before/After results before Mold Room Leader confirmation.' }
     if ($clean.repairType -eq 'Dimensional' -and ($clean.beforeValue -notmatch '[0-9]' -or $clean.afterValue -notmatch '[0-9]')) { throw 'Before/After measurements must contain numeric values.' }
   }
@@ -85,7 +113,7 @@ function Save-RepairPhoto {
   $null = Assert-ManagementMold $identity
   $guid = [guid]::Empty
   if (-not [guid]::TryParse([string]$Payload.itemId, [ref]$guid)) { throw 'Invalid repair item.' }
-  if (-not ([string]$Payload.uploadedBy).Trim() -or ([string]$Payload.uploadedBy).Length -gt 100) { throw 'Enter the mold room operator before uploading photos.' }
+  if (-not ([string]$Payload.uploadedBy).Trim() -or ([string]$Payload.uploadedBy).Length -gt 100) { throw 'Enter the mold team technician before uploading photos.' }
   if (([string]$Payload.contentBase64).Length -gt 7MB) { throw 'Photo exceeds 5 MB.' }
   $bytes = [Convert]::FromBase64String([string]$Payload.contentBase64)
   if ($bytes.Length -lt 8 -or $bytes.Length -gt 5MB) { throw 'Choose a JPEG or PNG photo up to 5 MB.' }

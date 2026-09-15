@@ -4,6 +4,7 @@ $managementLockFile = Join-Path $root 'mold_management.lock'
 $workOrdersDir = Join-Path $root 'work_orders'
 . (Join-Path $root 'mold_backup_retention.ps1')
 . (Join-Path $root 'mold_repair_review.ps1')
+. (Join-Path $root 'mold_approvals.ps1')
 
 function Read-ManagementData {
   if (-not [IO.File]::Exists($managementFile)) {
@@ -56,7 +57,7 @@ function New-ManagementOrder {
   $team = ([string]$InputOrder.team).Trim().ToUpperInvariant()
   $requestedBy = ([string]$InputOrder.requestedBy).Trim()
   $reason = ([string]$InputOrder.reason).Trim()
-  $rev = ([string]$InputOrder.rev).Trim()
+  $rev = if ($PreviousOrder) { [string]$PreviousOrder.rev } else { [string]$Mold.rev }
   $urgent = $InputOrder.urgent -eq $true
   $requestedCompletionDate = if ($urgent) { ([string]$InputOrder.requestedCompletionDate).Trim() } else { '' }
   if ($requestedCompletionDate) {
@@ -117,12 +118,33 @@ function New-ManagementOrder {
     moldNo = if ($PreviousOrder) { $PreviousOrder.moldNo } else { [string]$Mold.moldNo }
     description = if ($PreviousOrder) { $PreviousOrder.description } else { [string]$Mold.description }
     qcLeaderApproved = $false; qcLeaderBy = ([string]$InputOrder.qcLeaderBy).Trim(); qcLeaderAt = ''
+    postQcComment = ([string]$InputOrder.postQcComment).Trim()
     preQcLeaderApproved = $false; preQcLeaderBy = ([string]$InputOrder.preQcLeaderBy).Trim(); preQcLeaderAt = ''
   }
   if ($order.qcLeaderBy.Length -gt 100) { throw 'QC Leader name exceeds 100 characters.' }
-  $unchanged = $PreviousOrder -and (($cleanItems | ConvertTo-Json -Depth 12 -Compress) -ceq ($PreviousOrder.items | ConvertTo-Json -Depth 12 -Compress)) -and $rev -ceq [string]$PreviousOrder.rev -and $reason -ceq [string]$PreviousOrder.reason -and $requestedBy -ceq [string]$PreviousOrder.requestedBy
-  $preFields = @('id','modification','doneBy','repairType','beforeValue','afterValue','beforePhoto','afterPhoto','roomApproved','roomBy','roomAt','qcApproved','qcBy','qcAt','waived','waiveReason','waivedBy','waivedAt')
-  $preUnchanged = $PreviousOrder -and (($cleanItems | Select-Object $preFields | ConvertTo-Json -Depth 12 -Compress) -ceq ($PreviousOrder.items | Select-Object $preFields | ConvertTo-Json -Depth 12 -Compress)) -and $rev -ceq [string]$PreviousOrder.rev -and $reason -ceq [string]$PreviousOrder.reason -and $requestedBy -ceq [string]$PreviousOrder.requestedBy
+  $comparisonItems = @($PreviousOrder.items | Where-Object { $null -ne $_ } | ForEach-Object {
+    $copy = $_ | ConvertTo-Json -Depth 12 | ConvertFrom-Json
+    foreach ($prefix in @('mold','moldQc')) {
+      $legacy = if ($prefix -eq 'mold') { 'room' } else { 'qc' }
+      if ($null -eq $copy.($prefix + 'Checked')) {
+        $copy | Add-Member -NotePropertyName ($prefix + 'Checked') -NotePropertyValue ($copy.($legacy + 'Approved') -eq $true) -Force
+        $copy | Add-Member -NotePropertyName ($prefix + 'CheckedBy') -NotePropertyValue ([string]$copy.($legacy + 'By')) -Force
+        $copy | Add-Member -NotePropertyName ($prefix + 'CheckedAt') -NotePropertyValue ([string]$copy.($legacy + 'At')) -Force
+      }
+    }
+    foreach ($key in @('beforePhoto','afterPhoto')) {
+      $listKey = $key + 's'
+      if ($null -eq $copy.$listKey) {
+        $ids = if ($copy.$key) { @($copy.$key) } else { @() }
+        $copy | Add-Member -NotePropertyName $listKey -NotePropertyValue @($ids) -Force
+      }
+    }
+    $copy
+  })
+  $allFields = @($cleanItems[0].PSObject.Properties.Name | Sort-Object)
+  $unchanged = $PreviousOrder -and (($cleanItems | Select-Object $allFields | ConvertTo-Json -Depth 12 -Compress) -ceq ($comparisonItems | Select-Object $allFields | ConvertTo-Json -Depth 12 -Compress)) -and $rev -ceq [string]$PreviousOrder.rev -and $reason -ceq [string]$PreviousOrder.reason -and $requestedBy -ceq [string]$PreviousOrder.requestedBy
+  $preFields = @('id','moldChecked','moldCheckedBy','moldCheckedAt','moldQcChecked','moldQcCheckedBy','moldQcCheckedAt','modification','doneBy','repairType','beforeValue','afterValue','beforePhoto','afterPhoto','beforePhotos','afterPhotos','roomApproved','roomBy','roomAt','qcApproved','qcBy','qcAt','waived','waiveReason','waivedBy','waivedAt')
+  $preUnchanged = $PreviousOrder -and (($cleanItems | Select-Object $preFields | ConvertTo-Json -Depth 12 -Compress) -ceq ($comparisonItems | Select-Object $preFields | ConvertTo-Json -Depth 12 -Compress)) -and $rev -ceq [string]$PreviousOrder.rev -and $reason -ceq [string]$PreviousOrder.reason -and $requestedBy -ceq [string]$PreviousOrder.requestedBy
   if ($order.preQcLeaderBy.Length -gt 100) { throw 'Repair QC Leader name exceeds 100 characters.' }
   if ($InputOrder.preQcLeaderApproved -eq $true -and $preUnchanged) {
     $problem = Get-RepairReviewError $order
@@ -131,7 +153,8 @@ function New-ManagementOrder {
     $order.preQcLeaderApproved = $true
     $order.preQcLeaderAt = if ($PreviousOrder.preQcLeaderApproved -eq $true -and $PreviousOrder.preQcLeaderBy -ceq $order.preQcLeaderBy) { $PreviousOrder.preQcLeaderAt } else { $Now.ToString('o') }
   }
-  $unchanged = $unchanged -and $order.preQcLeaderApproved -eq ($PreviousOrder.preQcLeaderApproved -eq $true) -and $order.preQcLeaderBy -ceq [string]$PreviousOrder.preQcLeaderBy
+  if ($order.postQcComment.Length -gt 2000) { throw 'QC Comment exceeds 2000 characters.' }
+  $unchanged = $unchanged -and $order.postQcComment -ceq ([string]$PreviousOrder.postQcComment).Trim() -and $order.preQcLeaderApproved -eq ($PreviousOrder.preQcLeaderApproved -eq $true) -and $order.preQcLeaderBy -ceq [string]$PreviousOrder.preQcLeaderBy
   if ($InputOrder.qcLeaderApproved -eq $true -and $unchanged) {
     $problem = Get-RepairReviewError $order -Phase 'PostQC'
     if ($problem) { throw $problem }
@@ -181,6 +204,10 @@ function Save-ManagementEvent {
     $job = @($history | Where-Object { $receipt -and $_.jobId -eq $receipt.jobId })
     $closed = @($job | Where-Object { $_.action -in @('out','cancel') }).Count -gt 0
     $active = $receipt -and -not $closed
+    if ($null -ne $Payload.approval) {
+      if ($kind -ne 'repair' -or $action -ne 'note' -or -not $active -or $Payload.jobId -ne $receipt.jobId) { throw 'No matching open repair request.' }
+      return Save-WholeOrderApproval $Payload $data $job $moldSnapshot
+    }
     $stage = ''
     $completedStage = ''
     $equipment = ''
@@ -204,7 +231,29 @@ function Save-ManagementEvent {
       $previousOrders = @($job | Where-Object { $null -ne $_.workOrder })
       $previousOrder = if ($action -ne 'receive' -and $previousOrders.Count) { $previousOrders[-1].workOrder } else { $null }
       $workOrder = New-ManagementOrder $Payload.workOrder $previousOrder @($data.events) $moldSnapshot ([DateTimeOffset]::UtcNow) $identity
+      foreach ($item in $workOrder.items) {
+        $old = @($previousOrder.items | Where-Object id -eq $item.id) | Select-Object -First 1
+        foreach ($prefix in @('room','qc','postQc')) {
+          if ($item.($prefix + 'Approved') -and (-not $old.($prefix + 'Approved') -or $item.($prefix + 'By') -cne $old.($prefix + 'By'))) {
+            throw 'Use the header approval buttons.'
+          }
+        }
+      }
+      foreach ($prefix in @('preQcLeader','qcLeader')) {
+        if ($workOrder.($prefix + 'Approved') -and (-not $previousOrder.($prefix + 'Approved') -or $workOrder.($prefix + 'By') -cne $previousOrder.($prefix + 'By'))) {
+          throw 'Use the header approval buttons.'
+        }
+      }
       $currentProcesses = @($job | Where-Object { $_.action -in @('receive','stage','add-machine','start-process','process-complete') } | Group-Object { if ($_.assignmentId) { $_.assignmentId } else { 'main' } } | ForEach-Object { $_.Group[-1] })
+      $itemCheckPhase = @($currentProcesses | Where-Object { $_.stage -in @('Assemble','Repair QC Approval') -and $_.processStatus -eq 'In Progress' }).Count -gt 0
+      foreach ($item in $workOrder.items) {
+        $old = @($previousOrder.items | Where-Object id -eq $item.id) | Select-Object -First 1
+        foreach ($prefix in @('mold','moldQc')) {
+          $legacy = if ($prefix -eq 'mold') { 'room' } else { 'qc' }
+          $oldCheckAt = if ($null -ne $old.($prefix + 'CheckedAt')) { $old.($prefix + 'CheckedAt') } else { $old.($legacy + 'At') }
+          if ($item.($prefix + 'Checked') -and $item.($prefix + 'CheckedAt') -ne $oldCheckAt -and -not $itemCheckPhase) { throw 'Start Assemble or Repair QC Approval before checking items.' }
+        }
+      }
       $repairQcActive = @($currentProcesses | Where-Object { ($_.stage -eq 'Repair QC Approval' -and $_.processStatus -eq 'In Progress') -or ($_.action -eq 'process-complete' -and $_.completedStage -eq 'Repair QC Approval') }).Count -gt 0
       $postQcActive = @($currentProcesses | Where-Object { ($_.stage -eq 'QC Final Approval' -and $_.processStatus -eq 'In Progress') -or ($_.action -eq 'process-complete' -and $_.completedStage -eq 'QC Final Approval') }).Count -gt 0
       foreach ($reviewItem in $workOrder.items) {
