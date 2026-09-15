@@ -168,6 +168,11 @@ deploy_release() {
 }
 
 shopt -s nullglob
+release_count=0
 for archive in "$RELEASE_DIR"/*.zip; do
+  release_count=$((release_count + 1))
   deploy_release "$archive"
 done
+if [[ $release_count -eq 0 ]]; then
+  log 'No ZIP releases found; nothing to deploy.'
+fi
