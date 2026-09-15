@@ -125,8 +125,7 @@ deploy_release() {
     return 0
   fi
   if contains_runtime_data "$archive"; then
-    log "Rejected ZIP containing runtime data: $(basename "$archive")"
-    return 0
+    log "Release contains runtime data; it will be ignored and preserved on the server: $(basename "$archive")"
   fi
 
   stage=$(mktemp -d /var/tmp/mold-dashboard-release.XXXXXX)

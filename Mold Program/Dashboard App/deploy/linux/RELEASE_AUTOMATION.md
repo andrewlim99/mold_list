@@ -27,7 +27,9 @@ The archive must contain one `Dashboard App` source directory, including at
 least `mold_dashboard.html`, `mold_shared_server.ps1`, `mold_management.ps1`,
 the JavaScript files, and `assets/`.
 
-Never include live data or uploads:
+Live data and uploads are not deployed from a release ZIP. They may be present
+in a full-folder ZIP, but the deployer ignores them and preserves the live
+server copies:
 
 ```text
 mold_shared_rows.json
@@ -37,6 +39,9 @@ work_orders/
 repair_photos/
 Backups/
 ```
+
+Excluding these folders when creating the ZIP is still recommended because it
+keeps uploads small. A full-folder ZIP is safe, but can be much larger.
 
 ## Installation
 
