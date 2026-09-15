@@ -83,6 +83,17 @@ validate_release_root() {
   done
   [[ -d "$source_root/assets" ]] || { log 'Rejected: assets directory is missing.'; return 1; }
 
+  # These guards prevent a full NAS release from reverting fixes that are
+  # essential to the HTTP-based mold.internal deployment.
+  if ! grep -Fq 'return !!(window.location && /^http/i.test(window.location.protocol));' "$source_root/mold_dashboard.html"; then
+    log 'Rejected: release would disable shared mode for mold.internal.'
+    return 1
+  fi
+  if grep -Fq 'root.crypto.randomUUID()' "$source_root/mold_repair_review.js" || ! grep -Fq 'const uuid = () => {' "$source_root/mold_management.js"; then
+    log 'Rejected: release would restore an unsupported browser UUID dependency.'
+    return 1
+  fi
+
   if find "$source_root" -type l -print -quit | grep -q .; then
     log 'Rejected: release contains a symbolic link.'
     return 1
