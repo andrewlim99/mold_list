@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Synology NAS for Mold Dashboard releases every 30 minutes
+
+[Timer]
+# Avoid the existing data-backup timer at :00, :15, :30, and :45.
+OnCalendar=*:07/30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Deploy validated Mold Dashboard code releases from Synology NAS
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/mnt/mold-nas
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mold-dashboard-deploy-from-nas
